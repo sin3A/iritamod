@@ -6,18 +6,10 @@ import (
 	"fmt"
 	"github.com/bianjieai/iritamod/modules/node/types"
 	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/secp256k1"
-	"github.com/tendermint/tendermint/crypto/sm2"
-	"github.com/tendermint/tendermint/crypto/sr25519"
 	tmtypes "github.com/tendermint/tendermint/types"
-
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
@@ -32,29 +24,18 @@ func InitGenesis(ctx sdk.Context, cdc codec.Codec, k Keeper, data GenesisState) 
 
 	k.SetParams(ctx, data.Params)
 	k.SetRootCert(ctx, data.RootCert)
-	keyCdc := newTmCryptoCodec()
 
 	for _, val := range data.Validators {
 		k.SetValidator(ctx, val)
-		pubkey := TmPk2ProtoPk(val.Pubkey, keyCdc)
-		val.Pubkey = pubkey
-		var pk cryptotypes.PubKey
-		bz, err := sdk.GetFromBech32(val.Pubkey, sdk.GetConfig().GetBech32ConsensusPubPrefix())
-		pk, err = legacy.PubKeyFromBytes(bz)
-		if err != nil {
-			panic(err)
-		}
 		id, err := hex.DecodeString(val.Id)
 		if err != nil {
 			panic(err)
 		}
-
-		k.SetValidatorConsAddrIndex(ctx, id, sdk.GetConsAddress(pk))
-
 		pubKey, err := val.ConsPubKey()
 		if err != nil {
 			panic(err)
 		}
+		k.SetValidatorConsAddrIndex(ctx, id, sdk.GetConsAddress(pubKey))
 		tmPubKey, err := cryptocodec.ToTmPubKeyInterface(pubKey)
 		if err != nil {
 			panic(err)
@@ -171,36 +152,4 @@ func validateNodes(nodes []types.Node) error {
 	}
 
 	return nil
-}
-
-func newTmCryptoCodec() *codec.LegacyAmino {
-	cdc := codec.NewLegacyAmino()
-	cdc.RegisterInterface((*crypto.PubKey)(nil), nil)
-	cdc.RegisterConcrete(sm2.PubKeySm2{}, sm2.PubKeyName, nil)
-	cdc.RegisterConcrete(sr25519.PubKey{}, sr25519.PubKeyName, nil)
-	cdc.RegisterConcrete(ed25519.PubKey{}, ed25519.PubKeyName, nil)
-	cdc.RegisterConcrete(secp256k1.PubKey{}, secp256k1.PubKeyName, nil)
-	return cdc
-}
-
-func TmPk2ProtoPk(tmPubKey string, cdc *codec.LegacyAmino) string {
-	bz, err := sdk.GetFromBech32(tmPubKey, sdk.GetConfig().GetBech32ConsensusPubPrefix())
-	var tmpk crypto.PubKey
-	e := cdc.Unmarshal(bz, &tmpk)
-	if e != nil {
-		panic(e)
-	}
-	pk, err := cryptocodec.FromTmPubKeyInterface(tmpk)
-	if err != nil {
-		panic(err)
-	}
-	pkByte, err := legacy.Cdc.Marshal(pk)
-	if err != nil {
-		panic(err)
-	}
-	keyStr, err := sdk.Bech32ifyAddressBytes(sdk.GetConfig().GetBech32ConsensusPubPrefix(), pkByte)
-	if err != nil {
-		panic(err)
-	}
-	return keyStr
 }

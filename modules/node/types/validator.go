@@ -1,6 +1,12 @@
 package types
 
 import (
+	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/crypto/secp256k1"
+	"github.com/tendermint/tendermint/crypto/sm2"
+	"github.com/tendermint/tendermint/crypto/sr25519"
 	"sort"
 	"strings"
 
@@ -95,6 +101,11 @@ func (v Validator) GetOperator() sdk.ValAddress {
 
 // ConsPubKey returns the validator PubKey as a cryptotypes.PubKey.
 func (v Validator) ConsPubKey() (pk cryptotypes.PubKey, err error) {
+	keyCdc := newTmCryptoCodec()
+	pubkey, err := TmPk2ProtoPk(v.Pubkey, keyCdc)
+	if err == nil {
+		v.Pubkey = pubkey
+	}
 	bz, err := sdk.GetFromBech32(v.Pubkey, sdk.GetConfig().GetBech32ConsensusPubPrefix())
 	return legacy.PubKeyFromBytes(bz)
 }
@@ -206,4 +217,36 @@ func (v Validators) Swap(i, j int) {
 	it := v[i]
 	v[i] = v[j]
 	v[j] = it
+}
+
+func newTmCryptoCodec() *codec.LegacyAmino {
+	cdc := codec.NewLegacyAmino()
+	cdc.RegisterInterface((*crypto.PubKey)(nil), nil)
+	cdc.RegisterConcrete(sm2.PubKeySm2{}, sm2.PubKeyName, nil)
+	cdc.RegisterConcrete(sr25519.PubKey{}, sr25519.PubKeyName, nil)
+	cdc.RegisterConcrete(ed25519.PubKey{}, ed25519.PubKeyName, nil)
+	cdc.RegisterConcrete(secp256k1.PubKey{}, secp256k1.PubKeyName, nil)
+	return cdc
+}
+
+func TmPk2ProtoPk(tmPubKey string, cdc *codec.LegacyAmino) (string, error) {
+	bz, err := sdk.GetFromBech32(tmPubKey, sdk.GetConfig().GetBech32ConsensusPubPrefix())
+	var tmpk crypto.PubKey
+	e := cdc.Unmarshal(bz, &tmpk)
+	if e != nil {
+		return "", e
+	}
+	pk, err := cryptocodec.FromTmPubKeyInterface(tmpk)
+	if err != nil {
+		return "", err
+	}
+	pkByte, err := legacy.Cdc.Marshal(pk)
+	if err != nil {
+		return "", err
+	}
+	keyStr, err := sdk.Bech32ifyAddressBytes(sdk.GetConfig().GetBech32ConsensusPubPrefix(), pkByte)
+	if err != nil {
+		return "", err
+	}
+	return keyStr, nil
 }
